@@ -8,16 +8,18 @@ app.use(express.json());
 const TOKEN = process.env.BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
-// Kayıt dosyaları
 const USERS_FILE = "users.json";
 const GROUPS_FILE = "groups.json";
+const ADMINS_FILE = "admins.json";
 
-// Dosyalar yoksa oluştur
+// Dosya yoksa oluştur
 if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, "[]");
 if (!fs.existsSync(GROUPS_FILE)) fs.writeFileSync(GROUPS_FILE, "[]");
+if (!fs.existsSync(ADMINS_FILE)) fs.writeFileSync(ADMINS_FILE, "[]");
 
 const loadUsers = () => JSON.parse(fs.readFileSync(USERS_FILE));
 const loadGroups = () => JSON.parse(fs.readFileSync(GROUPS_FILE));
+const loadAdmins = () => JSON.parse(fs.readFileSync(ADMINS_FILE));
 const saveUsers = (data) => fs.writeFileSync(USERS_FILE, JSON.stringify(data));
 const saveGroups = (data) => fs.writeFileSync(GROUPS_FILE, JSON.stringify(data));
 
@@ -31,9 +33,10 @@ app.post("/webhook", async (req, res) => {
 
   const chatId = msg.chat.id;
   const text = msg.text || "";
+  const chatType = msg.chat.type;
 
-  // Kullanıcı özelden /start derse ID kaydolur
-  if (text === "/start") {
+  // Kullanıcı özelden start derse ID kaydolur
+  if (text === "/start" && chatType === "private") {
     let users = loadUsers();
     if (!users.includes(chatId)) {
       users.push(chatId);
@@ -41,12 +44,12 @@ app.post("/webhook", async (req, res) => {
     }
     await axios.post(`${API}/sendMessage`, {
       chat_id: chatId,
-      text: "Hoş geldin! Bu bot duyuru botudur."
+      text: "Hoş geldin! Bu bot global duyuru botudur."
     });
   }
 
   // Bot bir gruba/kanala eklenirse ID kaydolur
-  if (msg.chat.type === "group" || msg.chat.type === "supergroup" || msg.chat.type === "channel") {
+  if (chatType === "group" || chatType === "supergroup" || chatType === "channel") {
     let groups = loadGroups();
     if (!groups.includes(chatId)) {
       groups.push(chatId);
@@ -54,11 +57,23 @@ app.post("/webhook", async (req, res) => {
     }
   }
 
-  // Global Duyuru Komutu
+  // 🔥 GLOBAL DUYURU KOMUTU
   if (text.startsWith("/duyuru")) {
-    const duyuruMesajı = text.replace("/duyuru", "").trim();
 
-    if (!duyuruMesajı) {
+    // Admin kontrolü
+    const admins = loadAdmins();
+    if (!admins.includes(chatId)) {
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: chatId,
+        text: "⛔ Bu komutu kullanma yetkin yok!"
+      });
+      return res.sendStatus(200);
+    }
+
+    // Duyuru mesajı
+    const duyuru = text.replace("/duyuru", "").trim();
+
+    if (!duyuru) {
       await axios.post(`${API}/sendMessage`, {
         chat_id: chatId,
         text: "📢 Kullanım: /duyuru mesaj"
@@ -66,34 +81,34 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Tüm kullanıcıları yükle
     const users = loadUsers();
-
-    // Tüm grupları yükle
     const groups = loadGroups();
 
-    // Kullanıcılara duyuru gönder
+    // Kişilere gönder
     for (let id of users) {
       await axios.post(`${API}/sendMessage`, {
         chat_id: id,
-        text: `📢 *Yeni Duyuru:*\n\n${duyuruMesajı}`,
+        text: `📢 *Yeni Duyuru:*\n\n${duyuru}`,
         parse_mode: "Markdown"
       });
     }
 
-    // Gruplara duyuru gönder
+    // Gruplara gönder
     for (let id of groups) {
       await axios.post(`${API}/sendMessage`, {
         chat_id: id,
-        text: `📢 *Yeni Duyuru:*\n\n${duyuruMesajı}`,
+        text: `📢 *Yeni Duyuru:*\n\n${duyuru}`,
         parse_mode: "Markdown"
       });
     }
 
+    // Admin’e bilgi
     await axios.post(`${API}/sendMessage`, {
       chat_id: chatId,
       text: "✔️ Duyuru gönderildi."
     });
+
+    return res.sendStatus(200);
   }
 
   res.sendStatus(200);
